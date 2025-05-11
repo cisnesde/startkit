@@ -1,0 +1,154 @@
+# Polar Webhooks and Supabase Integration Guide
+
+## Overview
+
+This document explains how Polar webhooks work and how they integrate with Supabase in our application. Polar is a platform for managing subscriptions and payments, while Supabase serves as our backend database and authentication system.
+
+## Polar Webhook System
+
+Polar webhooks are event notifications sent from Polar's servers to our application when specific events occur in the Polar system. These events include subscription creations, updates, cancellations, and payment processing events.
+
+### Key Webhook Events
+
+- `subscription.created`: When a new subscription is created
+- `subscription.updated`: When an existing subscription is modified
+- `subscription.active`: When a subscription becomes active
+- `subscription.canceled`: When a subscription is canceled
+- `subscription.uncanceled`: When a canceled subscription is reactivated
+- `subscription.revoked`: When a subscription is forcibly terminated
+- `order.created`: When a new order is created
+
+## Webhook Security
+
+Polar webhooks include a signature in the headers that must be verified to ensure the webhook is legitimate. This is done using the `validateEvent` function from the Polar SDK, which requires:
+
+1. The raw request body
+2. The request headers
+3. The webhook secret (stored as an environment variable `POLAR_WEBHOOK_SECRET`)
+
+## Integration Architecture
+
+Our application has two webhook endpoints:
+
+1. **Next.js API Route**: `/api/polar/webhook` - For browser-based webhook handling
+2. **Supabase Edge Function**: `payments-webhook` - For serverless webhook processing
+
+Both endpoints perform similar functions but in different environments.
+
+## Database Schema
+
+The webhook events interact with two main tables in our Supabase database:
+
+### webhook_events
+
+Stores a record of all received webhook events:
+
+```sql
+CREATE TABLE IF NOT EXISTS public.webhook_events (
+    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    event_type text NOT NULL,
+    type text NOT NULL,
+    polar_event_id text,
+    data jsonb,
+    created_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL,
+    modified_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL,
+    error text
+);
+```
+
+### subscriptions
+
+Stores subscription data for users:
+
+```sql
+CREATE TABLE IF NOT EXISTS public.subscriptions (
+    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    user_id text REFERENCES public.users(user_id),
+    polar_id text UNIQUE,
+    polar_price_id text,
+    currency text,
+    interval text,
+    status text,
+    current_period_start bigint,
+    current_period_end bigint,
+    cancel_at_period_end boolean,
+    amount bigint,
+    started_at bigint,
+    ended_at bigint,
+    canceled_at bigint,
+    customer_cancellation_reason text,
+    customer_cancellation_comment text,
+    metadata jsonb,
+    custom_field_data jsonb,
+    customer_id text,
+    created_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL,
+    updated_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+```
+
+## Webhook Processing Flow
+
+1. **Receive Webhook**: The webhook is received at one of our endpoints
+2. **Verify Signature**: The webhook signature is verified using the Polar SDK
+3. **Store Event**: The event is stored in the `webhook_events` table
+4. **Process Event**: Based on the event type, appropriate actions are taken:
+   - For subscription events: Update the `subscriptions` table
+   - For order events: Log the event (currently minimal processing)
+5. **Return Response**: Send a success response to Polar
+
+## Error Handling
+
+If an error occurs during webhook processing:
+
+1. The error is logged
+2. If the webhook event was already stored, its record is updated with the error message
+3. A 500 status code is returned
+
+## Environment Variables
+
+The following environment variables are required:
+
+- `POLAR_ORGANIZATION_ID`: Your Polar organization ID
+- `POLAR_ACCESS_TOKEN`: API token for Polar API access
+- `POLAR_WEBHOOK_SECRET`: Secret for verifying webhook signatures
+- `SUPABASE_URL`: URL of your Supabase instance
+- `SUPABASE_ANON_KEY`: Anon key for Supabase client-side operations
+- `SUPABASE_SERVICE_KEY`: Service role key for admin operations
+
+## Row Level Security (RLS)
+
+Supabase RLS policies are configured to ensure users can only access their own subscription data:
+
+```sql
+CREATE POLICY "Users can view own subscriptions" ON public.subscriptions
+    FOR SELECT USING (auth.uid()::text = user_id);
+```
+
+## Implementation Details
+
+### Next.js API Route
+
+The Next.js API route (`/api/polar/webhook`) handles webhooks in a server environment and uses the Supabase client to update the database.
+
+### Supabase Edge Function
+
+The Edge Function (`payments-webhook`) provides similar functionality but runs in a serverless environment, making it suitable for webhook processing without a running server.
+
+## Testing Webhooks
+
+To test webhooks locally:
+
+1. Use a service like ngrok to expose your local server
+2. Configure the webhook URL in your Polar dashboard
+3. Trigger events in the Polar dashboard
+4. Monitor the webhook events in your application logs and database
+
+## Common Issues
+
+1. **Invalid Signature**: Ensure the `POLAR_WEBHOOK_SECRET` is correctly set
+2. **Missing User ID**: Ensure the `metadata.userId` field is included when creating subscriptions
+3. **Database Errors**: Check that the database schema matches the expected structure
+
+## Conclusion
+
+This integration allows our application to react in real-time to subscription events from Polar, keeping our database in sync with the subscription management platform and enabling features like access control based on subscription status.
