@@ -1,0 +1,220 @@
+# Supabase Migrations Guide
+
+## Introdução
+
+Este documento serve como um guia para entender e gerenciar migrações de banco de dados no Supabase, além de explicar como adicionar novos bancos de dados ao seu projeto. Este guia pode ser usado como um kit inicial para futuros projetos.
+
+## Estrutura do Supabase no Projeto
+
+O Supabase é organizado da seguinte forma no projeto:
+
+```
+supabase/
+├── client.ts           # Cliente Supabase para o navegador
+├── server.ts           # Cliente Supabase para o servidor
+├── supabase.ts         # Cliente Supabase genérico
+├── config.toml         # Configuração do Supabase
+├── migrations/         # Arquivos de migração SQL
+│   └── initial-setup.sql  # Configuração inicial do banco de dados
+└── functions/          # Edge Functions do Supabase
+    ├── get-plans/
+    │   └── index.ts
+    └── payments-webhook/
+        └── index.ts
+```
+
+## Migrações no Supabase
+
+### O que são migrações?
+
+Migrações são arquivos SQL que definem alterações no esquema do banco de dados. Elas permitem:
+
+1. Controle de versão do esquema do banco de dados
+2. Implantação consistente de alterações em diferentes ambientes
+3. Colaboração em equipe sem conflitos de esquema
+4. Rollback para versões anteriores se necessário
+
+### Como as migrações funcionam no Supabase
+
+1. Os arquivos de migração são armazenados no diretório `supabase/migrations/`
+2. Cada arquivo de migração contém instruções SQL para modificar o esquema
+3. Os arquivos são executados em ordem alfabética/numérica
+4. Convenção de nomenclatura: `YYYYMMDDHHMMSS_nome_descritivo.sql`
+
+### Exemplo de migração
+
+O arquivo `initial-setup.sql` contém a configuração inicial do banco de dados:
+
+```sql
+-- Criação de tabelas
+CREATE TABLE IF NOT EXISTS public.users (
+    id uuid PRIMARY KEY NOT NULL,
+    avatar_url text,
+    user_id text UNIQUE,
+    token_identifier text NOT NULL,
+    subscription text,
+    credits text,
+    image text,
+    created_at timestamp with time zone NOT NULL DEFAULT timezone('utc'::text, now()),
+    updated_at timestamp with time zone,
+    email text,
+    name text,
+    full_name text
+);
+
+-- Criação de índices
+CREATE INDEX IF NOT EXISTS subscriptions_user_id_idx ON public.subscriptions(user_id);
+
+-- Configuração de segurança (RLS)
+ALTER TABLE public.users ENABLE ROW LEVEL SECURITY;
+
+-- Criação de políticas de acesso
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_policies 
+        WHERE schemaname = 'public' 
+        AND tablename = 'users' 
+        AND policyname = 'Users can view own data'
+    ) THEN
+        EXECUTE 'CREATE POLICY "Users can view own data" ON public.users
+                FOR SELECT USING (auth.uid()::text = user_id)';
+    END IF;
+END
+$$;
+
+-- Criação de funções e triggers
+CREATE OR REPLACE FUNCTION public.handle_new_user()
+RETURNS TRIGGER AS $$
+BEGIN
+  INSERT INTO public.users (
+    id,
+    user_id,
+    email,
+    -- outros campos
+  ) VALUES (
+    NEW.id,
+    NEW.id::text,
+    NEW.email,
+    -- outros valores
+  );
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Criação de trigger
+DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
+CREATE TRIGGER on_auth_user_created
+  AFTER INSERT ON auth.users
+  FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
+```
+
+## Como Adicionar um Novo Banco de Dados
+
+### 1. Criar um Novo Projeto no Supabase
+
+1. Acesse o [Dashboard do Supabase](https://app.supabase.io)
+2. Clique em "New Project"
+3. Preencha os detalhes do projeto
+4. Escolha uma região próxima aos seus usuários
+5. Defina uma senha forte para o banco de dados
+6. Clique em "Create New Project"
+
+### 2. Configurar Variáveis de Ambiente
+
+Adicione as seguintes variáveis de ambiente ao seu projeto:
+
+```
+SUPABASE_URL=https://seu-projeto.supabase.co
+SUPABASE_ANON_KEY=sua-chave-anon
+SUPABASE_SERVICE_KEY=sua-chave-service-role
+NEXT_PUBLIC_SUPABASE_URL=https://seu-projeto.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=sua-chave-anon
+```
+
+### 3. Criar Arquivo de Migração Inicial
+
+Crie um arquivo de migração inicial em `supabase/migrations/` com o esquema do seu banco de dados:
+
+```sql
+-- Exemplo: 20240601000000_initial_schema.sql
+
+-- Criação de tabelas
+CREATE TABLE IF NOT EXISTS public.seu_modelo (
+    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    nome text NOT NULL,
+    descricao text,
+    created_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL,
+    updated_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
+-- Índices
+CREATE INDEX IF NOT EXISTS seu_modelo_nome_idx ON public.seu_modelo(nome);
+
+-- Segurança (RLS)
+ALTER TABLE public.seu_modelo ENABLE ROW LEVEL SECURITY;
+
+-- Políticas
+CREATE POLICY "Usuários podem ver seus próprios dados" 
+    ON public.seu_modelo FOR SELECT 
+    USING (auth.uid()::text = user_id);
+
+-- Funções e triggers se necessário
+```
+
+### 4. Executar a Migração
+
+Existem várias maneiras de executar migrações:
+
+#### Usando o Supabase CLI
+
+1. Instale o Supabase CLI: `npm install -g supabase`
+2. Faça login: `supabase login`
+3. Execute a migração: `supabase db push`
+
+#### Usando o SQL Editor no Dashboard
+
+1. Acesse o [Dashboard do Supabase](https://app.supabase.io)
+2. Selecione seu projeto
+3. Vá para a seção "SQL Editor"
+4. Cole o conteúdo do seu arquivo de migração
+5. Execute o SQL
+
+### 5. Atualizar os Tipos TypeScript
+
+Para manter seus tipos TypeScript atualizados com o esquema do banco de dados:
+
+1. Instale a ferramenta de geração de tipos: `npm install -D supabase-type-generator`
+2. Execute o comando para gerar tipos: `npx supabase-type-generator`
+3. Isso atualizará o arquivo `src/types/supabase.ts` com os novos tipos
+
+## Boas Práticas para Migrações
+
+1. **Idempotência**: Use `IF NOT EXISTS` e `IF EXISTS` para evitar erros ao executar a mesma migração várias vezes
+2. **Atomicidade**: Cada migração deve ser uma unidade atômica de trabalho
+3. **Versionamento**: Use prefixos de data/hora para garantir a ordem correta
+4. **Comentários**: Documente o propósito de cada migração
+5. **Rollback**: Considere criar migrações de rollback para alterações críticas
+6. **Teste**: Teste as migrações em um ambiente de desenvolvimento antes de aplicá-las em produção
+
+## Gerenciando Múltiplos Ambientes
+
+Para trabalhar com diferentes ambientes (desenvolvimento, teste, produção):
+
+1. Crie projetos Supabase separados para cada ambiente
+2. Use variáveis de ambiente específicas para cada ambiente
+3. Execute as mesmas migrações em cada ambiente para manter a consistência
+
+## Trabalhando com Edge Functions
+
+O Supabase permite criar Edge Functions serverless que podem interagir com seu banco de dados:
+
+1. Crie funções em `supabase/functions/sua-funcao/index.ts`
+2. Implante usando `supabase functions deploy sua-funcao`
+3. Acesse via `https://seu-projeto.supabase.co/functions/v1/sua-funcao`
+
+## Conclusão
+
+Este guia fornece uma base para gerenciar migrações de banco de dados no Supabase e adicionar novos bancos de dados ao seu projeto. Seguindo estas práticas, você pode manter um esquema de banco de dados consistente e versionado em todos os seus projetos.
+
+Para mais informações, consulte a [documentação oficial do Supabase](https://supabase.com/docs).

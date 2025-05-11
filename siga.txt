@@ -1,0 +1,194 @@
+# DOOR - Chat IA para Criação de Roteiros
+
+## Visão Geral do Projeto
+
+DOOR é uma aplicação SaaS (Software as a Service) que oferece um chat com IA especializado na criação de roteiros. A plataforma utiliza Next.js como framework principal, Supabase para autenticação e banco de dados, e Polar para processamento de pagamentos e gerenciamento de assinaturas.
+
+## Arquitetura do Projeto
+
+### Tecnologias Principais
+
+1. **Next.js (v14.2.23)** - Framework React com App Router para renderização do lado do servidor (SSR) e geração estática (SSG)
+2. **Supabase** - Plataforma de backend como serviço para autenticação, banco de dados e funções de borda
+3. **Polar** - Plataforma de pagamentos para gerenciamento de assinaturas
+4. **Tailwind CSS** - Framework CSS para estilização
+5. **ShadCN UI** - Biblioteca de componentes baseada em Radix UI
+6. **TypeScript** - Linguagem de programação tipada
+
+### Estrutura de Diretórios
+
+- **/src/app** - Rotas e páginas da aplicação (Next.js App Router)
+- **/src/components** - Componentes React reutilizáveis
+- **/src/lib** - Bibliotecas e utilitários
+- **/src/utils** - Funções utilitárias
+- **/src/types** - Definições de tipos TypeScript
+- **/supabase** - Configuração e funções do Supabase
+- **/supabase/functions** - Funções de borda do Supabase (Edge Functions)
+
+## Fluxo de Autenticação
+
+O sistema utiliza o Supabase Auth para gerenciar a autenticação de usuários:
+
+1. **Registro de Usuário** (/sign-up)
+   - Coleta nome, email e senha
+   - Cria um registro na tabela auth.users do Supabase
+   - Cria um registro paralelo na tabela public.users
+   - Envia email de verificação
+
+2. **Login de Usuário** (/sign-in)
+   - Autentica com email e senha
+   - Redireciona para o dashboard após autenticação bem-sucedida
+
+3. **Recuperação de Senha** (/forgot-password)
+   - Permite que usuários solicitem redefinição de senha
+   - Envia email com link para redefinição
+
+4. **Middleware de Autenticação**
+   - Verifica sessão do usuário em rotas protegidas
+   - Redireciona para login quando necessário
+
+## Sistema de Pagamentos e Assinaturas
+
+A integração com Polar gerencia o sistema de assinaturas:
+
+1. **Planos de Assinatura**
+   - Planos configurados no painel do Polar
+   - Exibidos na página de preços (/pricing)
+
+2. **Processo de Checkout**
+   - Implementado via função de borda do Supabase (create-checkout)
+   - Integração com API do Polar para criar sessão de checkout
+   - Redirecionamento para página de pagamento do Polar
+
+3. **Webhooks de Pagamento**
+   - Endpoint para receber eventos do Polar (/api/polar/webhook)
+   - Processa eventos como criação, atualização e cancelamento de assinaturas
+   - Atualiza o banco de dados com o status da assinatura
+
+4. **Verificação de Assinatura**
+   - Componente SubscriptionCheck verifica se o usuário tem assinatura ativa
+   - Redireciona para página de preços se não tiver assinatura
+
+## Banco de Dados
+
+O Supabase PostgreSQL é utilizado como banco de dados com as seguintes tabelas principais:
+
+1. **users** - Informações do usuário
+   - Campos: id, name, full_name, email, user_id, token_identifier, etc.
+
+2. **subscriptions** - Informações de assinatura
+   - Campos: polar_id, user_id, status, amount, interval, current_period_start, current_period_end, etc.
+
+3. **webhook_events** - Registro de eventos de webhook
+   - Campos: event_type, polar_event_id, data, error, etc.
+
+## Funções de Borda (Edge Functions)
+
+O projeto utiliza funções de borda do Supabase para operações do lado do servidor:
+
+1. **get-plans** - Obtém planos de assinatura do Polar
+   - Retorna lista de planos disponíveis para exibição na página de preços
+
+2. **create-checkout** - Cria sessão de checkout no Polar
+   - Recebe ID do plano, email do cliente e metadados
+   - Retorna URL para redirecionamento ao checkout
+
+3. **payments-webhook** - Processa webhooks do Polar
+   - Verifica assinatura do webhook
+   - Atualiza banco de dados com informações de assinatura
+
+## Interface do Usuário
+
+A interface é construída com Tailwind CSS e componentes do ShadCN UI:
+
+1. **Página Inicial** (/)
+   - Hero section destacando o produto
+   - Seção de recursos
+   - Seção "Como Funciona"
+   - Seção de preços
+   - Call-to-action
+
+2. **Dashboard** (/dashboard)
+   - Área protegida para usuários autenticados com assinatura ativa
+   - Exibe informações do usuário
+   - Permite gerenciar assinatura
+
+3. **Páginas de Autenticação**
+   - Sign-in, Sign-up, Forgot Password
+   - Formulários com validação
+
+4. **Página de Preços** (/pricing)
+   - Exibe planos disponíveis
+   - Botões para checkout
+
+## Middleware e Configurações
+
+1. **Next.js Middleware**
+   - Atualiza sessão do Supabase
+   - Protege rotas que requerem autenticação
+
+2. **Supabase Middleware**
+   - Gerencia cookies de autenticação
+   - Verifica sessão do usuário
+
+3. **Configurações**
+   - Tailwind CSS (tailwind.config.ts)
+   - Next.js (next.config.js)
+   - TypeScript (tsconfig.json)
+   - Componentes UI (components.json)
+
+## Variáveis de Ambiente
+
+O projeto requer as seguintes variáveis de ambiente:
+
+1. **Supabase**
+   - SUPABASE_URL
+   - SUPABASE_ANON_KEY
+   - SUPABASE_SERVICE_KEY
+   - NEXT_PUBLIC_SUPABASE_URL
+   - NEXT_PUBLIC_SUPABASE_ANON_KEY
+
+2. **Polar**
+   - POLAR_ACCESS_TOKEN
+   - POLAR_ORGANIZATION_ID
+   - POLAR_WEBHOOK_SECRET
+
+## Fluxo de Usuário
+
+1. Usuário acessa a página inicial
+2. Visualiza informações sobre o produto e planos
+3. Registra-se ou faz login
+4. Seleciona um plano de assinatura
+5. Completa o checkout via Polar
+6. É redirecionado para o dashboard após pagamento bem-sucedido
+7. Acessa recursos premium baseados no plano adquirido
+
+## Integração com Tempo
+
+O projeto inclui integração com a plataforma Tempo para desenvolvimento:
+
+1. **Tempo Devtools**
+   - Inicializado no componente TempoInit
+   - Configurado no next.config.js
+
+2. **Configuração do Tempo**
+   - Definida em tempo.config.json
+   - Inclui configurações de tipografia
+
+## Considerações de Segurança
+
+1. **Autenticação**
+   - Gerenciada pelo Supabase Auth
+   - Middleware protege rotas que requerem autenticação
+
+2. **Webhooks**
+   - Verificação de assinatura para webhooks do Polar
+   - Armazenamento de eventos para auditoria
+
+3. **Variáveis de Ambiente**
+   - Chaves sensíveis armazenadas como variáveis de ambiente
+   - Separação entre chaves públicas e privadas
+
+## Conclusão
+
+DOOR é uma aplicação SaaS moderna que combina Next.js, Supabase e Polar para oferecer um serviço de chat com IA especializado na criação de roteiros. A arquitetura é escalável, segura e oferece uma experiência de usuário fluida, com sistema de autenticação robusto e gerenciamento de assinaturas integrado.
